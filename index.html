@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AquaLevel – Smart Water Tank Monitor</title>
+
+    <!-- External MQTT library -->
+    <script src="Paho-mqtt.js"></script>
+
+    <!-- Fonts & Icons -->
+
+
+
+    <style>
+        :root {
+            --primary: #0066FF;
+            --primary-light: #4285FF;
+            --success: #00C851;
+            --warning: #FF8F00;
+            --error: #FF3D00;
+            --surface: rgba(255, 255, 255, .95);
+            --surface-var: rgba(255, 255, 255, .8);
+            --on-surface: #1C1B1F;
+            --on-surface-var: #49454F;
+            --outline: rgba(121, 116, 126, .5);
+            --shadow: rgba(0, 0, 0, .1);
+            --rad-lg: 24px
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            /*background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #6B73FF 100%);
+            background: #cae5f0;*/
+            background-color: #000;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px;
+            color: var(--on-surface);
+            overflow-x: hidden
+        }
+
+        .container {
+            width: 100%;
+            height: 100%;
+            background: var(--surface);
+            backdrop-filter: blur(20px);
+            border-radius: var(--rad-lg);
+
+            box-shadow: 0 24px 48px rgba(0, 0, 0, .12), 0 8px 16px rgba(0, 0, 0, .08);
+            border: 1px solid rgba(255, 255, 255, .3);
+            overflow: hidden;
+            animation: slideUp .6s cubic-bezier(.16, 1, .3, 1);
+            display: flex;
+            flex-direction: column;
+
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(32px)
+            }
+
+            to {
+                opacity: 1;
+                transform: none
+            }
+        }
+
+        .header {
+            padding: 15px;
+            text-align: center;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)
+        }
+
+        .app-title {
+            font-size: 28px;
+            font-weight: 800;
+            color: #fff;
+            margin-bottom: 8px
+        }
+
+        .app-subtitle {
+            font-size: 14px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, .8)
+        }
+
+        .controls-section {
+            padding: 10px;
+            background: var(--surface-var);
+            backdrop-filter: blur(10px)
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            position: relative
+        }
+
+        .control-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--on-surface-var);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: .5px
+        }
+
+        .control-select {
+            appearance: none;
+            background: #fff;
+            border: 2px solid var(--outline);
+            border-radius: 5px;
+            padding: 10px 40px 10px 16px;
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--on-surface);
+            cursor: pointer;
+            transition: .2s
+        }
+
+        .control-select:hover {
+            border-color: var(--primary);
+            box-shadow: 0 2px 8px rgba(0, 102, 255, .1)
+        }
+
+        .control-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(0, 102, 255, .1)
+        }
+
+        /*
+        .control-group::after {
+            content: 'expand_more';
+            font-family: 'Material Icons Outlined';
+            position: absolute;
+            right: 12px;
+            bottom: 14px;
+            color: var(--on-surface-var);
+            pointer-events: none
+        }*/
+
+        /* two-segment toggle */
+        .toggle-conn {
+            position: relative;
+            display: inline-flex;
+            border-radius: 5px;
+            background: #e5e7eb;
+            overflow: hidden;
+            font-size: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-evenly;
+        }
+
+        .toggle-conn input {
+            display: none
+        }
+
+        .toggle-conn label {
+            padding: 10px 20px;
+            cursor: pointer;
+            color: #4b5563;
+            user-select: none;
+            z-index: 1;
+            transition: color .25s ease;
+        }
+
+        .toggle-conn input:checked+label {
+            color: #fff
+        }
+
+        .toggle-conn .toggle-bg {
+            position: absolute;
+            inset: 0;
+            width: 50%;
+            background: #22c55e;
+            border-radius: 5px;
+            transition: transform .25s cubic-bezier(.4, 0, .2, 1);
+        }
+
+        #connCloud:checked~.toggle-bg {
+            transform: translateX(100%)
+        }
+
+
+        /* ─── Tank widget ─── */
+        .gauge-section {
+            padding: 40px 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: linear-gradient(180deg, var(--surface-var) 0%, var(--surface) 100%);
+            flex: 1;
+            gap: 15px;
+        }
+
+        .tank-container {
+            position: relative;
+            width: 250px;
+            height: 350px;
+            background: url('/images/t3.png');
+            background-position: center;
+            background-size: contain;
+            background-repeat: no-repeat;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 10px
+        }
+
+        .tank {
+            position: relative;
+            width: 220px;
+            height: 295px;
+            border-radius: 10px;
+            overflow: hidden;
+            /*background: #f0f0f0a3*/
+            background: #f7f7f7a3;
+        }
+
+        .water {
+            position: absolute;
+            /*bottom: 0;
+            left: 3px;
+            width: 98%;*/
+            bottom: 5px;
+            /*left: 8px;
+            right: 6px;*/
+            width: 92%;
+            left: 50%;
+            transform: translate(-50%);
+            border-radius: 0px 0px 15px 15px;
+            background: linear-gradient(180deg, #4FC3F7 0%, #29B6F6 50%, #0288D1 100%);
+            transition: height .8s ease
+        }
+
+        /*.water::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 20px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .3), transparent);
+            animation: wave 2s ease-in-out infinite
+        }*/
+        .water::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: 0;
+            right: 0;
+            height: 20px;
+            background: linear-gradient(90deg,
+                    rgba(255, 255, 255, 0.4) 0%,
+                    rgba(255, 255, 255, 0.2) 50%,
+                    rgba(255, 255, 255, 0.4) 100%);
+            border-radius: 50%;
+            animation: wave 3s ease-in-out infinite;
+        }
+
+        @keyframes wave {
+
+            0%,
+            100% {
+                transform: translateX(-10px) scaleX(1);
+            }
+
+            50% {
+                transform: translateX(10px) scaleX(1.1);
+            }
+        }
+
+        /*
+        @keyframes wave {
+
+            0%,
+            100% {
+                transform: translateX(-100%)
+            }
+
+            50% {
+                transform: translateX(100%)
+            }
+        }
+*/
+        .bubbles {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .bubble {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            animation: bubble-rise 4s infinite linear;
+        }
+
+        @keyframes bubble-rise {
+            0% {
+                bottom: 0;
+                opacity: 0.7;
+                transform: translateX(0) scale(0);
+            }
+
+            10% {
+                opacity: 1;
+                transform: translateX(0) scale(1);
+            }
+
+            90% {
+                opacity: 1;
+            }
+
+            100% {
+                bottom: 100%;
+                opacity: 0;
+                transform: translateX(20px) scale(0.5);
+            }
+        }
+
+        .level-indicators {
+            position: absolute;
+            /*right: -48px;
+            bottom: 4px;*/
+            right: -35px;
+            bottom: 10px;
+            height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between
+        }
+
+        .indicator {
+            font-size: 12px;
+            color: #666;
+            display: flex;
+            align-items: center
+        }
+
+        .indicator::before {
+            content: '';
+            width: 18px;
+            height: 1px;
+            background: #666;
+            margin-right: 4px
+        }
+
+        /*  .percentage-display {
+            margin-top: 12px;
+            font-size: 40px;
+            font-weight: 700;
+            color: #0288D1;
+            text-align: center
+        }*/
+        .percentage-display {
+            position: absolute;
+            z-index: 999;
+            top: 45%;
+            left: 53%;
+            transform: translate(-50%, -50%);
+            font-size: 40px;
+            font-weight: 700;
+            color: #000;
+            text-align: center
+        }
+
+        .level-status {
+            font-size: 18px;
+            font-weight: 700;
+            text-align: center;
+            padding: 8px 30px;
+            border-radius: 8px
+        }
+
+        .level-low {
+            background: #ffebee;
+            color: #d32f2f
+        }
+
+        .level-medium {
+            background: #fff3e0;
+            color: #f57c00
+        }
+
+        .level-good {
+            background: #e8f5e9;
+            color: #388e3c
+        }
+
+        /* Status bar */
+        .status-section {
+            padding: 0
+        }
+
+        .status-bar {
+            padding: 20px 24px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+            transition: .3s
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .5
+            }
+        }
+
+        .status-connected {
+            background: linear-gradient(135deg, var(--success) 0%, #00E676 100%)
+        }
+
+        .status-connecting {
+            background: linear-gradient(135deg, var(--warning) 0%, #FFB300 100%)
+        }
+
+        .status-error {
+            background: linear-gradient(135deg, var(--error) 0%, #FF5722 100%)
+        }
+
+        .status-disconnected {
+            background: linear-gradient(135deg, #757575 0%, #9E9E9E 100%)
+        }
+
+        /* Mobile tweaks */
+        @media(max-width:480px) {
+
+            /* .tank-container{width:150px;height:225px}.indicator{font-size:10px}*/
+            .percentage-display {
+                font-size: 32px
+            }
+
+            .controls-grid {
+                gap: 12px
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="app-title">AquaLevel</h1>
+            <p class="app-subtitle">Smart Water Tank Monitor</p>
+        </div>
+
+        <div class="controls-section">
+            <div class="controls-grid">
+                <div class="control-group">
+                    <label class="control-label">Device</label>
+                    <select class="control-select" id="deviceSelect" onchange="handleConnectionChange()">
+                        <option value="mlu-t01-aqualevel-10a797">Main Upper Tank</option>
+                        <option value="mlu-t01-aqualevel-ce158f">Ground Tank</option>
+                    </select>
+                </div>
+                <!-- Connection (toggle) -->
+                <div class="control-group">
+                    <label class="control-label">
+
+                        Connection
+                    </label>
+
+                    <!-- hidden <select> keeps existing JS unchanged -->
+                    <select id="dataConnection" style="display:none">
+                        <option value="local" selected>Local</option>
+                        <option value="cloud">Cloud</option>
+                    </select>
+
+                    <!-- new segmented control -->
+                    <div class="toggle-conn" role="radiogroup">
+                        <input type="radio" id="connLocal" name="conn" value="local" checked>
+                        <label for="connLocal">Local</label>
+
+                        <input type="radio" id="connCloud" name="conn" value="cloud">
+                        <label for="connCloud">Cloud</label>
+
+                        <span class="toggle-bg"></span><!-- sliding highlight -->
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Water-level widget -->
+        <div class="gauge-section">
+            <div class="tank-container">
+                <div class="tank">
+                    <p class="percentage-display" id="percentageText">0%</p>
+                    <div class="water" id="waterLevel">
+                        <div class="bubbles" id="bubbles"></div>
+                    </div>
+                </div>
+                <div class="level-indicators">
+                    <div class="indicator">100%</div>
+                    <div class="indicator">75%</div>
+                    <div class="indicator">50%</div>
+                    <div class="indicator">25%</div>
+                    <div class="indicator">0%</div>
+                </div>
+            </div>
+            <!-- <p class="percentage-display" id="percentageText">0%</p>-->
+            <p class="level-status level-low" id="levelStatus">Low</p>
+        </div>
+
+        <div class="status-section">
+            <div class="status-bar status-disconnected" id="status">
+                <div class="status-indicator">
+                    <div class="status-dot"></div><span>Initializing...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Unified connection script -->
+    <script>
+        /* ───────── GLOBAL STATE ───────── */
+        let activeConnection = { socket: null, mqttClient: null, type: null };
+        let messageTimeout = null, reconnectTimeout = null, heartbeatInterval = null;
+        let bubbleInterval;
+        let currentLevel = 0;
+
+        function createBubble() {
+            if (currentLevel <= 10) return; // No bubbles for very low levels
+
+            const bubbles = document.getElementById('bubbles');
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+
+            const size = Math.random() * 8 + 4;
+            bubble.style.width = size + 'px';
+            bubble.style.height = size + 'px';
+            bubble.style.left = Math.random() * 80 + 10 + '%';
+            bubble.style.animationDuration = (Math.random() * 3 + 2) + 's';
+            bubble.style.animationDelay = Math.random() * 2 + 's';
+
+            bubbles.appendChild(bubble);
+
+            setTimeout(() => {
+                if (bubble.parentNode) {
+                    bubble.parentNode.removeChild(bubble);
+                }
+            }, 6000);
+        }
+
+        function updateBubbles(level) {
+            clearInterval(bubbleInterval);
+
+            if (level > 10) {
+                const frequency = Math.max(2000 - (level * 15), 500);
+                bubbleInterval = setInterval(createBubble, frequency);
+            }
+        }
+
+
+        const connState = {
+            isConnecting: false, isConnected: false,
+            attempts: 0, maxAttempts: 5, backoff: 3000,
+            manualClose: false
+        };
+
+        /* grab static DOM refs once */
+        const waterLevel = document.getElementById('waterLevel');
+        const percentageText = document.getElementById('percentageText');
+        const levelStatus = document.getElementById('levelStatus');
+        const statusBar = document.getElementById('status');      // ← renamed
+
+        const deviceSelect = document.getElementById('deviceSelect');
+        const dataConnection = document.getElementById('dataConnection');
+
+
+        /* sync the toggle with hidden <select>, reuse existing handleConnectionChange() */
+        document.querySelectorAll('.toggle-conn input').forEach(radio => {
+            radio.addEventListener('change', e => {
+                dataConnection.value = e.target.value;      // keep legacy code working
+                handleConnectionChange();
+            });
+        });
+
+        /* ───────── UI HELPERS ───────── */
+        function renderTank(p) {
+            currentLevel = p;
+
+            console.log('[UI] renderTank %:', p);
+            p = Math.max(0, Math.min(100, p));
+            waterLevel.style.height = p + '%';
+            percentageText.textContent = p + '%';
+
+            levelStatus.className = 'level-status';
+            if (p <= 0) { levelStatus.textContent = 'Empty'; levelStatus.classList.add('level-low'); }
+            else if (p <= 20) { levelStatus.textContent = 'Low'; levelStatus.classList.add('level-low'); }
+            else if (p <= 60) { levelStatus.textContent = 'Medium'; levelStatus.classList.add('level-medium'); }
+            else { levelStatus.textContent = 'Good'; levelStatus.classList.add('level-good'); }
+            updateBubbles(p);
+        }
+
+        function setStatus(txt, cls) {
+            console.log('[STATUS]', txt);
+            if (!statusBar) return;
+            statusBar.className = 'status-bar status-' + cls;
+            statusBar.querySelector('span').textContent = txt;
+        }
+
+        /* ───────── CONNECTION SWITCH ───────── */
+        function handleConnectionChange() {
+            console.log('=== CONNECTION CHANGE TRIGGERED ===');
+            console.log('Device:', deviceSelect.value);
+            console.log('Connection:', dataConnection.value);
+
+            forceDisconnectAll();
+            renderTank(0);
+            setTimeout(initConnection, 200);           // allow close handshake
+        }
+
+        /* ───────── FULL DISCONNECT ───────── */
+        function forceDisconnectAll() {
+            console.log('=== FORCE DISCONNECT ALL ===');
+
+            connState.manualClose = true;
+            connState.isConnecting = connState.isConnected = false;
+            connState.attempts = 0;
+
+            clearTimeout(messageTimeout);
+            clearTimeout(reconnectTimeout);
+            clearInterval(heartbeatInterval);
+            messageTimeout = reconnectTimeout = heartbeatInterval = null;
+
+            const oldWS = activeConnection.socket;
+            const oldMQTT = activeConnection.mqttClient;
+            activeConnection.socket = activeConnection.mqttClient = null;
+
+            if (oldWS) {
+                console.log('[WS] closing…');
+                try {
+                    oldWS.onopen = oldWS.onclose = oldWS.onerror = oldWS.onmessage = null;
+                    oldWS.close(1000, 'switch');
+                } catch (e) { console.warn('[WS] close error', e); }
+            }
+
+            if (oldMQTT) {
+                console.log('[MQTT] disconnecting…');
+                try {
+                    oldMQTT.onConnectionLost = () => { };
+                    oldMQTT.onMessageArrived = () => { };
+                    if (oldMQTT.isConnected()) oldMQTT.disconnect();
+                } catch (e) { console.warn('[MQTT] disconnect error', e); }
+            }
+
+            activeConnection.type = null;
+            setStatus('Disconnected', 'disconnected');
+            console.log('=== ALL LINKS CLOSED ===');
+        }
+
+        /* ───────── INIT NEW CONNECTION ───────── */
+        function initConnection() {
+            if (connState.isConnecting) { console.log('[INIT] already connecting'); return; }
+
+            connState.manualClose = false;
+            connState.attempts = 0; connState.backoff = 3000;
+
+            activeConnection.type = (dataConnection.value === 'local') ? 'websocket' : 'mqtt';
+            console.log('[INIT] chosen type:', activeConnection.type);
+
+            setStatus('Connecting…', 'connecting');
+            (activeConnection.type === 'websocket') ? connectWS() : connectMQTT();
+        }
+
+        /* ───────── WEBSOCKET LOGIC ───────── */
+        function connectWS() {
+            if (connState.manualClose || connState.isConnecting) return;
+            connState.isConnecting = true;
+
+            const url = `ws://${deviceSelect.value}/ws`;
+            console.log('[WS] connecting to', url, `(attempt ${connState.attempts + 1})`);
+
+            const ws = new WebSocket(url);
+            activeConnection.socket = ws;
+
+            const timer = setTimeout(() => { if (ws.readyState === WebSocket.CONNECTING) { console.log('[WS] timeout'); try { ws.close(); } catch { } } }, 10000);
+
+            ws.onopen = () => {
+                clearTimeout(timer);
+                console.log('[WS] connected');
+                connState.isConnecting = false; connState.isConnected = true; connState.attempts = 0;
+                setStatus('Connected (Local)', 'connected');
+                startHeartbeat();
+            };
+
+            ws.onmessage = e => {
+                clearTimeout(messageTimeout);
+                try {
+                    const d = JSON.parse(e.data);
+                    console.log('[WS] message', d);
+                    renderTank(+d.percentage || +d.Percentage || 0);
+                    setStatus('Connected (Local)', 'connected');
+                    messageTimeout = setTimeout(() => setStatus('No Recent Data', 'error'), 60000);
+                } catch (err) { console.error('[WS] parse', err); }
+            };
+
+            ws.onclose = ev => {
+                clearTimeout(timer); clearInterval(heartbeatInterval);
+                console.log('[WS] closed', ev.code, ev.reason);
+                connState.isConnecting = connState.isConnected = false;
+                if (!connState.manualClose) retry('websocket');
+            };
+
+            ws.onerror = err => {
+                console.error('[WS] error', err);
+                connState.isConnecting = connState.isConnected = false;
+                if (!connState.manualClose) retry('websocket');
+            };
+        }
+
+        function startHeartbeat() {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(() => {
+                if (activeConnection.socket?.readyState === 1 && activeConnection.type === 'websocket') {
+                    console.log('[WS] ping');
+                    try { activeConnection.socket.send('{"type":"ping"}'); } catch (e) { console.warn('[WS] ping failed', e); }
+                } else clearInterval(heartbeatInterval);
+            }, 30000);
+        }
+
+        /* ───────── MQTT LOGIC ───────── */
+        function connectMQTT() {
+            if (connState.manualClose || connState.isConnecting) return;
+            connState.isConnecting = true;
+
+            const topic = `${deviceSelect.value.replace('.local', '')}/value`;
+            console.log('[MQTT] connecting (attempt', connState.attempts + 1, ') topic:', topic);
+
+            const c = new Paho.MQTT.Client(
+                '7e1ec0635dd447eeb940e10e2c9e3599.s1.eu.hivemq.cloud', 8884,
+                'client-' + Math.random().toString(36).slice(2));
+            activeConnection.mqttClient = c;
+
+            c.onConnectionLost = r => {
+                console.warn('[MQTT] lost', r.errorMessage);
+                connState.isConnecting = connState.isConnected = false;
+                if (!connState.manualClose) retry('mqtt');
+            };
+
+            c.onMessageArrived = m => {
+                clearTimeout(messageTimeout);
+                try {
+                    const d = JSON.parse(m.payloadString);
+                    console.log('[MQTT] message', d);
+                    renderTank(+d.percentage || +d.Percentage || 0);
+                    setStatus('Connected (Cloud)', 'connected');
+                    messageTimeout = setTimeout(() => setStatus('No Recent Data', 'error'), 60000);
+                } catch (err) { console.error('[MQTT] parse', err); }
+            };
+
+            c.connect({
+                userName: 'mluiotsolutions', password: 'Mlusolutions@123',
+                useSSL: true, timeout: 10, keepAliveInterval: 30,
+                onSuccess: () => {
+                    console.log('[MQTT] connected');
+                    if (activeConnection.type !== 'mqtt') { try { c.disconnect(); } catch { }; return; }
+                    connState.isConnecting = false; connState.isConnected = true; connState.attempts = 0;
+                    c.subscribe(topic); console.log('[MQTT] subscribed', topic);
+                    setStatus('Connected (Cloud)', 'connected');
+                },
+                onFailure: e => {
+                    console.error('[MQTT] fail', e.errorMessage);
+                    connState.isConnecting = connState.isConnected = false;
+                    if (!connState.manualClose) retry('mqtt');
+                }
+            });
+        }
+
+        /* ───────── RECONNECT BACK-OFF ───────── */
+        function retry(kind) {
+            if (activeConnection.type !== kind || connState.manualClose || connState.attempts >= connState.maxAttempts) {
+                if (connState.attempts >= connState.maxAttempts) console.warn('[RETRY]', kind, 'max attempts reached');
+                return;
+            }
+            connState.attempts++;
+            const delay = Math.min(connState.backoff * Math.pow(1.5, connState.attempts - 1), 30000);
+            console.log('[RETRY]', kind, 'in', delay, 'ms (attempt', connState.attempts, ')');
+            setStatus(`Reconnecting in ${Math.ceil(delay / 1000)} s`, 'connecting');
+            reconnectTimeout = setTimeout(() => { if (!connState.manualClose) (kind === 'websocket') ? connectWS() : connectMQTT(); }, delay);
+        }
+
+        /* ───────── VISIBILITY / UNLOAD ───────── */
+        document.addEventListener('visibilitychange', () => {
+            console.log('[PAGE]', document.hidden ? 'hidden' : 'visible');
+            if (document.hidden) clearInterval(heartbeatInterval);
+            else if (!connState.isConnected && !connState.isConnecting) setTimeout(initConnection, 1000);
+        });
+        window.addEventListener('beforeunload', forceDisconnectAll);
+
+        /* ───────── STARTUP ───────── */
+        window.addEventListener('load', () => {
+            console.log('[PAGE] loaded – init after 500 ms');
+            renderTank(0);
+            setTimeout(initConnection, 500);
+        });
+    </script>
+
+
+</body>
+
+</html>
